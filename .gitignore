@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Output
+output/
+!output/html/latest/current.html
+
+# IDE
+.codebuddy/
+
+# Docker local
+docker/.env
+
+# Token usage (runtime data)
+output/token_usage.json
+
+# Database
+*.db

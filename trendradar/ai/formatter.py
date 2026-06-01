@@ -76,6 +76,69 @@ def _format_standalone_summaries(summaries: dict) -> str:
     return "\n\n".join(lines)
 
 
+def _format_news_briefs(briefs: dict) -> str:
+    """格式化新闻摘要为可读格式"""
+    if not briefs:
+        return ""
+    lines = []
+    for title, brief in briefs.items():
+        if brief:
+            lines.append(f"• {title}\n  → {brief}")
+    return "\n\n".join(lines)
+
+
+def _format_token_usage_markdown(result: AIAnalysisResult) -> str:
+    """格式化 token 使用统计为 Markdown 格式"""
+    run = result.run_token_usage
+    cumulative = result.cumulative_token_usage
+    if not run.total_tokens and not cumulative.total_tokens:
+        return ""
+    lines = ["**Token 消耗统计**"]
+    lines.append(f"• 本次消耗: 输入 {run.prompt_tokens} + 输出 {run.completion_tokens} = **{run.total_tokens}** tokens")
+    lines.append(f"• 累计消耗: 输入 {cumulative.prompt_tokens} + 输出 {cumulative.completion_tokens} = **{cumulative.total_tokens}** tokens")
+    return "\n".join(lines)
+
+
+def _format_token_usage_plain(result: AIAnalysisResult) -> str:
+    """格式化 token 使用统计为纯文本格式"""
+    run = result.run_token_usage
+    cumulative = result.cumulative_token_usage
+    if not run.total_tokens and not cumulative.total_tokens:
+        return ""
+    lines = ["[Token 消耗统计]"]
+    lines.append(f"• 本次消耗: 输入 {run.prompt_tokens} + 输出 {run.completion_tokens} = {run.total_tokens} tokens")
+    lines.append(f"• 累计消耗: 输入 {cumulative.prompt_tokens} + 输出 {cumulative.completion_tokens} = {cumulative.total_tokens} tokens")
+    return "\n".join(lines)
+
+
+def _format_token_usage_telegram(result: AIAnalysisResult) -> str:
+    """格式化 token 使用统计为 Telegram HTML 格式"""
+    run = result.run_token_usage
+    cumulative = result.cumulative_token_usage
+    if not run.total_tokens and not cumulative.total_tokens:
+        return ""
+    lines = ["<b>Token 消耗统计</b>"]
+    lines.append(f"• 本次消耗: 输入 {run.prompt_tokens} + 输出 {run.completion_tokens} = <b>{run.total_tokens}</b> tokens")
+    lines.append(f"• 累计消耗: 输入 {cumulative.prompt_tokens} + 输出 {cumulative.completion_tokens} = <b>{cumulative.total_tokens}</b> tokens")
+    return "\n".join(lines)
+
+
+def _format_token_usage_html(result: AIAnalysisResult) -> str:
+    """格式化 token 使用统计为 HTML 格式"""
+    run = result.run_token_usage
+    cumulative = result.cumulative_token_usage
+    if not run.total_tokens and not cumulative.total_tokens:
+        return ""
+    return f"""
+                    <div class="ai-block">
+                        <div class="ai-block-title">Token 消耗统计</div>
+                        <div class="ai-block-content">
+                            本次消耗: 输入 {run.prompt_tokens} + 输出 {run.completion_tokens} = <b>{run.total_tokens}</b> tokens<br>
+                            累计消耗: 输入 {cumulative.prompt_tokens} + 输出 {cumulative.completion_tokens} = <b>{cumulative.total_tokens}</b> tokens
+                        </div>
+                    </div>"""
+
+
 def render_ai_analysis_markdown(result: AIAnalysisResult) -> str:
     """渲染为通用 Markdown 格式（Telegram、企业微信、ntfy、Bark、Slack）"""
     if not result.success:
@@ -110,6 +173,16 @@ def render_ai_analysis_markdown(result: AIAnalysisResult) -> str:
         summaries_text = _format_standalone_summaries(result.standalone_summaries)
         if summaries_text:
             lines.extend(["**独立源点速览**", summaries_text])
+
+    if result.news_briefs:
+        briefs_text = _format_news_briefs(result.news_briefs)
+        if briefs_text:
+            lines.extend(["**📰 新闻速览**", briefs_text])
+
+    # Token 消耗统计
+    token_text = _format_token_usage_markdown(result)
+    if token_text:
+        lines.extend(["", "---", token_text])
 
     return "\n".join(lines)
 
@@ -148,6 +221,16 @@ def render_ai_analysis_feishu(result: AIAnalysisResult) -> str:
         summaries_text = _format_standalone_summaries(result.standalone_summaries)
         if summaries_text:
             lines.extend(["**独立源点速览**", summaries_text])
+
+    if result.news_briefs:
+        briefs_text = _format_news_briefs(result.news_briefs)
+        if briefs_text:
+            lines.extend(["**📰 新闻速览**", briefs_text])
+
+    # Token 消耗统计
+    token_text = _format_token_usage_markdown(result)
+    if token_text:
+        lines.extend(["", "---", token_text])
 
     return "\n".join(lines)
 
@@ -193,6 +276,16 @@ def render_ai_analysis_dingtalk(result: AIAnalysisResult) -> str:
         if summaries_text:
             lines.extend(["#### 独立源点速览", summaries_text])
 
+    if result.news_briefs:
+        briefs_text = _format_news_briefs(result.news_briefs)
+        if briefs_text:
+            lines.extend(["#### 📰 新闻速览", briefs_text])
+
+    # Token 消耗统计
+    token_text = _format_token_usage_markdown(result)
+    if token_text:
+        lines.extend(["", "---", token_text])
+
     return "\n".join(lines)
 
 
@@ -226,6 +319,16 @@ def render_ai_analysis_plain(result: AIAnalysisResult) -> str:
         summaries_text = _format_standalone_summaries(result.standalone_summaries)
         if summaries_text:
             lines.extend(["[独立源点速览]", summaries_text])
+
+    if result.news_briefs:
+        briefs_text = _format_news_briefs(result.news_briefs)
+        if briefs_text:
+            lines.extend(["[📰 新闻速览]", briefs_text])
+
+    # Token 消耗统计
+    token_text = _format_token_usage_plain(result)
+    if token_text:
+        lines.extend(["", "---", token_text])
 
     return "\n".join(lines)
 
@@ -263,6 +366,16 @@ def render_ai_analysis_telegram(result: AIAnalysisResult) -> str:
         summaries_text = _format_standalone_summaries(result.standalone_summaries)
         if summaries_text:
             lines.extend(["<b>独立源点速览</b>", _escape_html(summaries_text)])
+
+    if result.news_briefs:
+        briefs_text = _format_news_briefs(result.news_briefs)
+        if briefs_text:
+            lines.extend(["<b>📰 新闻速览</b>", _escape_html(briefs_text)])
+
+    # Token 消耗统计
+    token_text = _format_token_usage_telegram(result)
+    if token_text:
+        lines.extend(["", "---", token_text])
 
     return "\n".join(lines)
 
@@ -362,6 +475,21 @@ def render_ai_analysis_html_rich(result: AIAnalysisResult) -> str:
                         <div class="ai-block-title">独立源点速览</div>
                         <div class="ai-block-content">{summaries_html}</div>
                     </div>"""
+
+    if result.news_briefs:
+        briefs_text = _format_news_briefs(result.news_briefs)
+        if briefs_text:
+            briefs_html = _escape_html(briefs_text).replace("\n", "<br>")
+            ai_html += f"""
+                    <div class="ai-block">
+                        <div class="ai-block-title">📰 新闻速览</div>
+                        <div class="ai-block-content">{briefs_html}</div>
+                    </div>"""
+
+    # Token 消耗统计
+    token_html = _format_token_usage_html(result)
+    if token_html:
+        ai_html += token_html
 
     ai_html += """
                     </div>

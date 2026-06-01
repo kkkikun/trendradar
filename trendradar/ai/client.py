@@ -10,6 +10,15 @@ import os
 from typing import Any, Dict, List
 
 from litellm import completion
+from dataclasses import dataclass
+
+
+@dataclass
+class TokenUsage:
+    """Token 使用统计"""
+    prompt_tokens: int = 0      # 输入 token
+    completion_tokens: int = 0  # 输出 token
+    total_tokens: int = 0       # 总 token
 
 
 class AIClient:
@@ -43,7 +52,7 @@ class AIClient:
         self,
         messages: List[Dict[str, str]],
         **kwargs
-    ) -> str:
+    ) -> tuple[str, TokenUsage]:
         """
         调用 AI 模型进行对话
 
@@ -52,7 +61,7 @@ class AIClient:
             **kwargs: 额外参数，会覆盖默认配置
 
         Returns:
-            str: AI 响应内容
+            tuple[str, TokenUsage]: (AI 响应内容, Token 使用统计)
 
         Raises:
             Exception: API 调用失败时抛出异常
@@ -99,7 +108,15 @@ class AIClient:
                 item.get("text", str(item)) if isinstance(item, dict) else str(item)
                 for item in content
             )
-        return content or ""
+
+        # 提取 token 使用统计
+        usage = TokenUsage()
+        if hasattr(response, 'usage') and response.usage:
+            usage.prompt_tokens = getattr(response.usage, 'prompt_tokens', 0) or 0
+            usage.completion_tokens = getattr(response.usage, 'completion_tokens', 0) or 0
+            usage.total_tokens = getattr(response.usage, 'total_tokens', 0) or 0
+
+        return content or "", usage
 
     def validate_config(self) -> tuple[bool, str]:
         """

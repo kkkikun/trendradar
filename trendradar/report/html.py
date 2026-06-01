@@ -447,6 +447,15 @@ def render_html_content(
                 margin: 0;
             }
 
+            .news-brief {
+                font-size: 13px;
+                color: #666;
+                margin-top: 4px;
+                line-height: 1.3;
+                padding-left: 8px;
+                border-left: 2px solid #e5e7eb;
+            }
+
             .news-link {
                 color: #2563eb;
                 text-decoration: none;
@@ -1214,6 +1223,7 @@ def render_html_content(
             body.dark-mode .rss-link { color: #93c5fd; }
             body.dark-mode .news-title a:visited { color: #c4b5fd; }
             body.dark-mode .rss-link:hover { color: #6ee7b7; }
+            body.dark-mode .news-brief { color: #94a3b8; border-left-color: #475569; }
 
             /* 强调色 */
             body.dark-mode .keyword-tag {
@@ -1695,6 +1705,15 @@ def render_html_content(
                     stats_html += f'<a href="{escaped_url}" target="_blank" class="news-link">{escaped_title}</a>'
                 else:
                     stats_html += escaped_title
+
+                # 在新闻标题下方添加 AI 生成的简报（如果存在）
+                if ai_analysis and hasattr(ai_analysis, 'news_briefs') and ai_analysis.news_briefs:
+                    title = title_data["title"]
+                    brief = ai_analysis.news_briefs.get(title)
+                    if brief:
+                        escaped_brief = html_escape(brief)
+                        stats_html += f"""
+                            <div class="news-brief">→ {escaped_brief}</div>"""
 
                 stats_html += """
                             </div>

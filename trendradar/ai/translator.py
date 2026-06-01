@@ -284,4 +284,5 @@ class AITranslator:
             messages.append({"role": "system", "content": self.system_prompt})
         messages.append({"role": "user", "content": user_prompt})
 
-        return self.client.chat(messages)
+        response, _ = self.client.chat(messages)
+        return response

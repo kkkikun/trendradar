@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from trendradar.ai.client import AIClient
+from trendradar.ai.client import AIClient, TokenUsage
 from trendradar.ai.prompt_loader import load_prompt_template
 
 
@@ -24,6 +24,7 @@ class AIAnalysisResult:
     rss_insights: str = ""               # RSS 深度洞察
     outlook_strategy: str = ""           # 研判与策略建议
     standalone_summaries: Dict[str, str] = field(default_factory=dict)  # 独立展示区概括 {源ID: 概括}
+    news_briefs: Dict[str, str] = field(default_factory=dict)  # 每条新闻的一句话摘要 {标题: 摘要}
 
     # 基础元数据
     raw_response: str = ""               # 原始响应
@@ -43,6 +44,10 @@ class AIAnalysisResult:
     ai_mode: str = ""                    # AI 分析使用的模式 (daily/current/incremental)
     include_rss: bool = True             # 是否启用 RSS 分析
     include_standalone: bool = False     # 是否启用独立展示区分析
+    
+    # Token 使用统计
+    run_token_usage: TokenUsage = field(default_factory=TokenUsage)  # 本次分析 token 使用
+    cumulative_token_usage: TokenUsage = field(default_factory=TokenUsage)  # 累计 token 使用（跨运行）
 
 
 class AIAnalyzer:
@@ -194,13 +199,25 @@ class AIAnalyzer:
 
         # 调用 AI API（使用 LiteLLM）
         try:
-            response = self._call_ai(user_prompt)
+            response, usage = self._call_ai(user_prompt)
             result = self._parse_response(response)
+            
+            # 累积 token 使用量
+            run_token_usage = TokenUsage(
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                total_tokens=usage.total_tokens
+            )
 
             # JSON 解析失败时的重试兜底（仅重试一次）
             if result.error and "JSON 解析错误" in result.error:
                 print(f"[AI] JSON 解析失败，尝试让 AI 修复...")
-                retry_result = self._retry_fix_json(response, result.error)
+                retry_result, retry_usage = self._retry_fix_json(response, result.error)
+                # 累加重试的 token 使用量
+                run_token_usage.prompt_tokens += retry_usage.prompt_tokens
+                run_token_usage.completion_tokens += retry_usage.completion_tokens
+                run_token_usage.total_tokens += retry_usage.total_tokens
+                
                 if retry_result and retry_result.success and not retry_result.error:
                     print("[AI] JSON 修复成功")
                     retry_result.raw_response = response
@@ -227,6 +244,18 @@ class AIAnalyzer:
             result.max_news_limit = self.max_news
             result.include_rss = self.include_rss
             result.include_standalone = self.include_standalone
+            
+            # 填充 token 使用统计
+            result.run_token_usage = run_token_usage
+            # 加载累计 token 使用量
+            result.cumulative_token_usage = self._load_cumulative_token_usage()
+            # 累加本次 token 使用量到累计值
+            result.cumulative_token_usage.prompt_tokens += run_token_usage.prompt_tokens
+            result.cumulative_token_usage.completion_tokens += run_token_usage.completion_tokens
+            result.cumulative_token_usage.total_tokens += run_token_usage.total_tokens
+            # 保存累计 token 使用量
+            self._save_cumulative_token_usage(result.cumulative_token_usage)
+            
             return result
         except Exception as e:
             error_type = type(e).__name__
@@ -361,7 +390,7 @@ class AIAnalyzer:
 
         return news_content, rss_content, hotlist_total, rss_total, total_count, news_count, rss_count
 
-    def _call_ai(self, user_prompt: str) -> str:
+    def _call_ai(self, user_prompt: str) -> tuple[str, TokenUsage]:
         """调用 AI API（使用 LiteLLM）"""
         messages = []
         if self.system_prompt:
@@ -370,7 +399,7 @@ class AIAnalyzer:
 
         return self.client.chat(messages)
 
-    def _retry_fix_json(self, original_response: str, error_msg: str) -> Optional[AIAnalysisResult]:
+    def _retry_fix_json(self, original_response: str, error_msg: str) -> tuple[Optional[AIAnalysisResult], TokenUsage]:
         """
         JSON 解析失败时，请求 AI 修复 JSON（仅重试一次）
 
@@ -381,7 +410,7 @@ class AIAnalyzer:
             error_msg: JSON 解析的错误信息
 
         Returns:
-            修复后的分析结果，失败时返回 None
+            (修复后的分析结果, Token使用统计)，失败时返回 (None, TokenUsage())
         """
         messages = [
             {
@@ -407,11 +436,11 @@ class AIAnalyzer:
         ]
 
         try:
-            response = self.client.chat(messages)
-            return self._parse_response(response)
+            response, usage = self.client.chat(messages)
+            return self._parse_response(response), usage
         except Exception as e:
             print(f"[AI] 重试修复 JSON 异常: {type(e).__name__}: {e}")
-            return None
+            return None, TokenUsage()
 
     def _format_time_range(self, first_time: str, last_time: str) -> str:
         """格式化时间范围（简化显示，只保留时分）"""
@@ -626,6 +655,13 @@ class AIAnalyzer:
                     str(k): str(v) for k, v in summaries.items()
                 }
 
+            # 解析每条新闻的一句话摘要
+            briefs = data.get("news_briefs", {})
+            if isinstance(briefs, dict):
+                result.news_briefs = {
+                    str(k): str(v) for k, v in briefs.items()
+                }
+
             result.success = True
         except (KeyError, TypeError, AttributeError) as e:
             result.error = f"字段提取错误: {type(e).__name__}: {e}"
@@ -633,3 +669,37 @@ class AIAnalyzer:
             result.success = True
 
         return result
+
+    def _load_cumulative_token_usage(self) -> TokenUsage:
+        """从文件加载累计 token 使用量"""
+        import os
+        token_usage_file = os.path.join("output", "token_usage.json")
+        if os.path.exists(token_usage_file):
+            try:
+                with open(token_usage_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return TokenUsage(
+                    prompt_tokens=data.get("prompt_tokens", 0),
+                    completion_tokens=data.get("completion_tokens", 0),
+                    total_tokens=data.get("total_tokens", 0)
+                )
+            except Exception:
+                return TokenUsage()
+        return TokenUsage()
+
+    def _save_cumulative_token_usage(self, usage: TokenUsage) -> None:
+        """保存累计 token 使用量到文件"""
+        import os
+        # 确保 output 目录存在
+        os.makedirs("output", exist_ok=True)
+        token_usage_file = os.path.join("output", "token_usage.json")
+        data = {
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "total_tokens": usage.total_tokens
+        }
+        try:
+            with open(token_usage_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[AI] 保存 token 使用量失败: {e}")
